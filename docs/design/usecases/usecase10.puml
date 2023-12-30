@@ -1,0 +1,26 @@
+@startuml
+left to right direction
+
+actor Robot
+
+usecase "check type" as ct
+usecase "check size" as cs
+usecase "assigns task" as at
+usecase "does task" as dt
+
+actor "Cleaning Manger" as cm
+
+actor "Management System" as ms
+
+cm - at
+at - ms : "task inputted to system"
+ms - cs : "checks robot size"
+ms - ct : "checks robot type"
+ct - Robot
+cs - Robot
+dt - ms : "tells robot to do task"
+dt - Robot
+
+@enduml
+
+'As a robot I need to be able to know my own type (a large robot or a small one ).

@@ -1,0 +1,19 @@
+@startuml UseCase2
+
+actor Cleaning_Manager  as C
+actor Robot as R
+
+usecase Command as "Command the right robot for this job"
+usecase GiveType as "Return type"
+usecase CheckType as "Check type of robot"
+
+C -- Command
+C -- CheckType: Is the correct type for the job?
+
+CheckType -- GiveType
+R - GiveType
+@enduml
+
+'As a customer, I want to be able to command a specific type 
+'of robot to complete a task so that I can make sure the
+' right robot is doing the job.

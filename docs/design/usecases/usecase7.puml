@@ -1,0 +1,19 @@
+@startuml UseCase7
+
+left to right direction
+
+actor "Cleaning Manager" as C
+actor Robot
+
+usecase "Location of robot" as locOfRob
+usecase "Location of the assigned job" as locJob
+usecase "Check if locations are the same" as Check
+
+Robot - locOfRob: "give location"
+C - locOfRob: "see location"
+C -locJob: "see location"
+C - Check
+
+@enduml
+
+'As a customer, I want to be able to see the location of robots so that I can make sure the right rooms are being cleaned.

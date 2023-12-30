@@ -1,0 +1,17 @@
+@startuml UseCase9
+
+left to right direction
+
+actor "Cleaning Manager" as C
+actor Robot
+
+usecase "Room Assignment" as roomAssignment
+usecase Path
+
+Robot - roomAssignment: "gets assignment"
+C - roomAssignment: "gives assignment"
+Robot - Path: "creates path to room"
+
+@enduml
+
+'As a robot, I need to have a path to follow and rooms assigned to me.

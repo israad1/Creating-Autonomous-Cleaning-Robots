@@ -1,0 +1,20 @@
+@startuml
+
+actor "Cleaning Manager" as C
+actor Robot as R
+
+usecase Check_id as "View Robot IDs"
+usecase Check_type as "View Robot Types"
+
+C -- Check_id: "Check robot's ID"
+C -- Check_type: "Check robot type"
+
+Check_id -- R: "Get ID"
+Check_type -- R: "Get Type"
+
+
+
+
+@enduml
+'As a customer, I want to be able to see the IDs and types of robots so that 
+'I can know what robot is doing what task

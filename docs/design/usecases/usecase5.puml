@@ -1,0 +1,29 @@
+@startuml
+
+actor "Cleaning Manager" as C
+actor Robot as R 
+actor Technician as T
+actor Robot2 as R2
+
+
+
+usecase Check as "Check Robot failure"
+usecase Report as "Report Robot failure"
+usecase Give as "Give Task to new Robot"
+
+C -- Check: "Task failed?"
+Check -- R: "Check status"
+
+C -- Report: "Report failure"
+Report -- T: "Receive failure report"
+
+C -- Give: "Assign the task to another robot"
+Give -- R2 : "Assign the task to robot2" 
+T-- R: "Fix Robot"
+@enduml
+
+
+
+' As a customer, I want to be able to check if a robot has 
+'failed a task so that I can call someone 
+'to fix it and send a new robot to do the task instead.

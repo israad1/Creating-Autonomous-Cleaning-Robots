@@ -1,0 +1,41 @@
+@startuml
+
+participant Manager
+participant Room
+participant Fleet
+participant Robot
+participant LogFile
+
+Manager -> Room : displayAllRooms()
+Manager -> LogFile : add display All Rooms to the log file
+
+Room -> Manager : gives information about about rooms
+Room -> LogFile : add give information to the log file
+Manager -> Manager : determines what room needs to be cleaned
+Manager -> LogFile : add action to the log file
+Manager -> Fleet : displayAvailableRobots()
+Manager -> LogFile : add display available robots to the log file
+Fleet -> Manager : gives information about the status of each robot
+Fleet -> LogFile : add action to the log file
+loop while room is not clean
+Manager -> Manager : determines what robot to send to room
+Manager -> LogFile : add action to the log file
+alt robot has enough battery
+Manager -> Robot : sends robot to room
+Manager -> LogFile : add sending robots to the log file
+Robot -> Room: moves to room
+Robot -> LogFile : add action to the log file
+Robot -> Room: cleans room
+Robot -> LogFile : add action to the log file
+Robot -> Robot: returns to base
+Robot -> LogFile : add action to the log file
+else robot does not have enough battery
+Robot -> Manager : sends error message
+Robot -> LogFile : add error to the log file
+
+end
+end
+
+
+
+@enduml

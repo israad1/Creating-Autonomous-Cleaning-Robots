@@ -1,0 +1,50 @@
+@startuml
+
+participant Manager
+participant Robot
+participant Technician
+participant LogFile
+
+
+loop For each Robot in Fleet
+    Manager -> Robot: viewRobotStatus()
+    Manager -> LogFile : add view robot status to the log file
+    note right: Is there a robot that needs fixing?
+
+    alt Robot has an issue
+        Manager -> Manager: Robot down, needs fixing
+        Manager -> LogFile : add action to the log file
+        Manager -> Technician: callTech()
+        Manager -> LogFile : add action to the log file
+        Technician -> Technician: isTechBusy() 
+        Technician -> LogFile : add is Tech Busy to the log file
+        note left: is Technician Busy?
+
+        alt Technician is busy
+            Manager -> Technician: Add robot to queue of Busy_robot_queue that belongs to Technician
+            Manager -> LogFile : add action to the log file
+
+        else Technician is not busy
+            Manager -> Technician: Add to Busy_robot_queue
+            Manager -> LogFile : add action to the log file
+            Technician -> Robot: Attempt to fix
+            Technician -> LogFile : add attempt to fix to the log file
+            note right: Technician fixes robot 
+            Technician --> Manager: isfixed = True 
+            Technician -> LogFile : add isfixed = True action to the log file
+        end
+
+    else Robot is fine
+        Manager -> Manager: Robot fixed
+        Manager -> LogFile : add action to the log file
+    end
+
+  
+
+end
+Manager -> Manager : All Robots fixed 
+Manager -> LogFile : add daction to the log file
+Technician -> Technician : isBusy() = False 
+Technician -> LogFile : add is busy declaration function to the log file
+
+@enduml

@@ -1,0 +1,24 @@
+@startuml UseCase3
+
+actor Cleaning_Manager  as C
+actor Robot as R
+
+usecase Battery as "Check battery level"
+usecase GiveBattery as "Return battery"
+usecase Charge as "Charge robots"
+
+C -- Battery
+C -- Charge
+Battery -- GiveBattery
+R - GiveBattery
+note right of Battery
+    Status: 
+    - Needs charging 
+    - Does not need charging
+end note 
+
+@enduml
+
+'As a customer, I want to be able to check 
+'the battery level of robots so that I can know which 
+'robots need to charge.

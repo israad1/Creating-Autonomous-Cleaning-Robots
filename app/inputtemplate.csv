@@ -1,0 +1,9 @@
+robots:
+[robot1 name] [robot1 size] [robot1 type]
+[robot2 name] [robot2 size] [robot2 type]
+...
+
+rooms:
+[room1 name] [room1 length] [room1 width] [room1 sweepable] [room1 moppable] [room1 scrubbable]
+[room2 name] [room2 length] [room2 width] [room2 sweepable] [room2 moppable] [room2 scrubbable]
+...

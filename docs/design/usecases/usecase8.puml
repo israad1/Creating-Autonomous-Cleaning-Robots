@@ -1,0 +1,19 @@
+@startuml UseCase8
+
+actor Robot
+
+usecase Clean
+usecase "Completed job in time" as cj
+usecase "Go into task queue" as tq
+usecase "Did not complete job in time" as ncj
+
+Robot - Clean
+Clean - cj
+cj - tq
+
+Clean - ncj
+
+
+@enduml
+
+'As a robot, I want to be able to carry out my own specific function within a specific assigned time.

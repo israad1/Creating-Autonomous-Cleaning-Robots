@@ -1,0 +1,23 @@
+@startuml
+left to right direction
+
+actor Robot
+actor "Cleaning Manager" as cm
+actor "Management System" as ms
+
+
+usecase "assigns task" as at
+usecase "check time until battery dies" as cb
+usecase "complete task" as ct
+
+cm - at
+at - ms
+ms - cb : "calculates if robot can do task"
+ms - ct : "tells robot to do task"
+cb - Robot
+Robot - ct
+
+
+@enduml
+
+'As a robot I want to be able to know my battery capacity - time .

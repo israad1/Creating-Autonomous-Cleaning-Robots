@@ -1,0 +1,18 @@
+@startuml UseCase1
+
+actor Cleaning_Manager as C
+actor Robot as R
+
+usecase HaveRobots as "Assign different types of robots 
+                       for different rooms"
+
+C -- HaveRobots 
+
+HaveRobots -- R
+@enduml
+
+
+
+
+' 1: As a customer, I want to have different types of robots so that
+' I can clean different types of surfaces and rooms.

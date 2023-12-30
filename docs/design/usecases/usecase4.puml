@@ -1,0 +1,23 @@
+@startuml
+
+actor "Cleaning Manager" as C
+actor Robot as R
+
+usecase Robot_status as "Check Robot Status"
+usecase Give_Task as "Give Task to Robot"
+
+C -- Robot_status: "View robot status"
+C -- Give_Task: "Assign task based on status"
+Give_Task -- R: "Execute task"
+
+note right of Robot_status
+    Status: 
+    - Currently occupied 
+    - Currently free to use 
+end note 
+@enduml
+
+
+
+'As a customer, I want to be able to check 
+'what each robot status so that I can send them to do tasks accordingly.

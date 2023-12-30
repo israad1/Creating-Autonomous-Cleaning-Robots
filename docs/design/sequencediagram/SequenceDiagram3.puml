@@ -1,0 +1,56 @@
+@startuml SequenceDiagram3
+
+'Manager uses all display functions just to check in
+participant Manager 
+
+participant Room
+
+participant Robot 
+
+participant Fleet
+
+participant LogFile
+
+Manager -> Room : displayDirtyRooms()
+Manager -> LogFile : add display Dirty Rooms to the log file
+
+loop for each room
+    Room -> Manager : randomlyDirty()
+    Room -> LogFile : add randomly Dirty function to the log file
+end 
+
+Manager -> Room : displayCleanRoom()
+Manager -> LogFile : add display Clean Rooms to the log file
+loop for each room
+    Room -> Manager: return percentage of cleanliness
+    Room -> LogFile : add action to the log file
+end 
+
+Manager -> Room : displayAllRooms()
+Manager -> LogFile : add display all Rooms to the log file
+
+Manager -> Fleet : displayFleet()
+Manager -> LogFile : add action to the log file
+Fleet -> Manager : return list of fleet
+Fleet -> LogFile : add action to the log file
+
+Manager -> Fleet : display busy and available robots
+Manager -> LogFile : add display busy and available robots to the log file
+loop for each robot
+    alt robot is busy
+        Fleet -> Robot : checks if robot is busy
+        Fleet -> LogFile : add action to the log file
+        Robot -> Fleet : ifBusy()
+        Robot -> LogFile : add action to the log file
+        Fleet -> Manager : returns list of Busy robots
+        Fleet -> LogFile : add action to the log file
+    else robot is not busy
+        Fleet -> Robot : checks if robot is busy
+        Fleet -> LogFile : add action to the log file
+        Robot -> Fleet : ifBusy()
+        Robot-> LogFile : add action to the log file
+        Fleet -> Manager : returns list of Available robots
+        Fleet -> LogFile : add action to the log file
+    end
+end
+@enduml 

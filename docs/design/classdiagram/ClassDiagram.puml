@@ -1,0 +1,159 @@
+@startuml Class Diagram
+
+'Manager uses Room
+Manager --> Room
+'Manager uses Robot
+Manager --> Robot
+'Manager uses Technician
+Manager --> Technician
+'Manager uses Fleet
+Manager --> Fleet
+'Manager uses Building
+Manager --> Building
+
+
+'Technician uses Robot
+Technician --> Robot
+'Robot uses Room
+Robot --> Room
+'One Fleet contains many robots
+Fleet "1" *-- "many" Robot
+'One Building contains many Rooms
+Building "1" *-- "many" Room
+
+
+'Manager uses Timer
+Manager --> Timer
+'Technician uses Timer
+Technician --> Timer
+'Fleet uses Timer
+Fleet --> Timer
+'Building uses Timer
+Building --> Timer
+'Robot uses Timer
+Robot --> Timer
+'Room uses Timer
+Room --> Timer
+
+
+class Manager{
+string filename
+
+Manager : void viewRobotStatus()
+Manager : void viewLocation()
+Manager : void assignRobot()
+Manager : void callTech()
+Manager : void displayDirtyRooms()
+Manager : void displayCleanRooms()
+Manager : void displayAllRooms()
+Manager : void displayBusyRobots()
+Manager : void displayAvailableRobots()
+Manager : void displayFleet()
+}
+
+class Room{
+string name
+float width_
+float length_
+bool sweepable
+bool moppable
+bool vaccumable
+bool scrubbable
+int id
+static int numberOfRooms
+string filename
+
+string getName()
+float getWidth()
+float getLength()
+float getSize()
+int getID()
+bool getSweepable()
+bool getMoppable()
+bool getVaccumable()
+bool getScrubbable()
+float getPercentSwept()
+float getPercentMopped()
+float getPercentVaccumed()
+float getPercentScrubbed()
+void setPercentSwept(float percent)
+void setPercentMopped(float percent)
+void setPercentScrubbed(float percent)
+void randomlyDirty()
+}
+
+class Robot{
+string name
+int id
+float battery_
+Size size
+Room* location
+bool busy
+bool failed
+Job job
+static int numberOfRobots
+string filename
+
+string getName()
+int getID()
+float getBattery()
+Size getSize()
+Room* getLocation()
+bool getBusy()
+bool getFailed()
+Job getJob()
+void move(Room* room)
+void charge()
+void setName(std::string name)
+void setBattery(float percent)
+void setBusy(bool status)
+void setFailed(bool status)
+bool hasFailed()
+bool isRoomClean()
+void clean()
+}
+
+class Fleet{
+      vector <Robot*> fleet
+      vector <Robot*> AvailableRobots
+      vector <Robot*> BusyRobots
+      string filename
+
+      void updateVectors(Robot* robot)
+      vector<Robot*> getFleet()
+      vector<Robot*> getAvailableRobots()
+      vector<Robot*> getBusyRobots()
+
+}
+
+class Technician{
+    std::deque<Robot*> brokenRobotQueue
+    string filename
+    deque getRobotQueue()
+
+    void technicianFixesRobot()
+    void addRobotToQueue(Robot* robot)
+    bool isTechBusy() const
+
+}
+
+class Building{
+    std::vector<Room*> building
+    string filename
+
+    void addRoom(Room* room)
+    std::vector<Room*> getBuilding()
+    std::vector<Room*> getDirtyRooms()
+    std::vector<Room*> getCleanRooms()
+}
+
+class Timer{
+    int time
+
+    void addTime()
+    int getTime()
+}
+
+
+
+@enduml
