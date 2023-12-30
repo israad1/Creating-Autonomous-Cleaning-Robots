@@ -1,10 +1,8 @@
-# CMSC322 Main Project
+# CMSC322 - Fall 2023 Software Engineering Practicum - Main Project
 
-This main project is your repository for the duration of the semester! **Take care of it!**
-Your team must communicate and coordinate to ensure that this project repo does not get totally borked!
+
 
 ## Repo Structure
-Here are the main directories you need to worry about this semester:
 + `docs` - this [folder](docs/README.md) maintains **all** of your project documentation: `puml` files and `README`s. You will have deliverables that require updating this documentation.
 + `include` - the [include](include/INCLUDE.md) files for the libraries your team makes
 + `src` - the [source](src/SRC.md) files for libraries you decide to split out the implementation
