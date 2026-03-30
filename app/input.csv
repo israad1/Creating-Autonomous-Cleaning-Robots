@@ -5,11 +5,15 @@ Robot3 small scrubber
 Robot4 large sweeper
 Robot5 large mopper
 Robot6 large scrubber
+Robot7 small vacuumer
+Robot8 large vacuumer
 
 rooms:
-Office 10 20 true false true
-Lab 12 15.5 false false true
-Atrium 11.25 12 false true true
-Kitchen 8 9.5 true false false
-Restroom 5 8.3 true true true
-Basement 25 20 false true false
+Office      10    20    true  false true  false
+Lab         12    15.5  false false true  false
+Atrium      11.25 12    false true  true  false
+Kitchen     8     9.5   true  false false true
+Restroom    5     8.3   true  true  true  true
+Basement    25    20    false true  false true
+Conference  14    10    true  false false false
+Lobby       20    18    true  true  false true
