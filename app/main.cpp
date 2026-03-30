@@ -1,327 +1,585 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CleanBot Fleet Manager  ─  main.cpp
+//  Interactive CLI for coordinating autonomous cleaning robots.
+//
+//  New in v2.0
+//    • Rich colour terminal UI (ANSI/Unicode)
+//    • dashboard  – full system overview at a glance
+//    • auto       – AI-style smart auto-assignment
+//    • stats      – session analytics
+//    • priority   – mark a room as high-priority for auto-assign
+//    • Fixed Room constructor calls (vacuumable parameter)
+//    • Fixed uninitialized waitingRobot crash
+// ─────────────────────────────────────────────────────────────────────────────
 #include "libclean/manager.hpp"
 #include "libclean/fleet.hpp"
-#include "libclean/robot.hpp" 
+#include "libclean/robot.hpp"
 #include "libclean/room.hpp"
 #include "libclean/building.hpp"
 #include "libclean/timer.hpp"
-#include <iostream>
-#include <string>
-#include <unordered_map>
+#include "libclean/ui.hpp"
 
-std::vector<std::string> split(const std::string &s, const std::string &split_on) {
-    //function for handling splitting a string into a vector, taken from project from CMSC 301
-    std::vector<std::string> split_terms;
-    int cur_pos = 0;
-    while(cur_pos >= 0) {
-        int new_pos = s.find_first_not_of(split_on, cur_pos);
-        cur_pos = s.find_first_of(split_on, new_pos);
-        if(new_pos == -1 && cur_pos == -1) break; 
-        split_terms.push_back(s.substr(new_pos,cur_pos-new_pos));
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include <algorithm>
+#include <iomanip>
+#include <cmath>
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Session statistics
+// ─────────────────────────────────────────────────────────────────────────────
+struct Stats {
+    int assignments     = 0;
+    int completedCleans = 0;
+    int failures        = 0;
+    int techCalls       = 0;
+    int autoRuns        = 0;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  String split
+// ─────────────────────────────────────────────────────────────────────────────
+static std::vector<std::string> split(const std::string& s, const std::string& delim) {
+    std::vector<std::string> out;
+    std::size_t cur = 0;
+    while (cur < s.size()) {
+        std::size_t start = s.find_first_not_of(delim, cur);
+        if (start == std::string::npos) break;
+        std::size_t end = s.find_first_of(delim, start);
+        out.push_back(s.substr(start, end - start));
+        cur = (end == std::string::npos) ? s.size() : end;
     }
-    return split_terms;
+    return out;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Job / Size to string helpers
+// ─────────────────────────────────────────────────────────────────────────────
+static std::string jobStr(Job j) {
+    switch (j) {
+        case Job::SWEEPER:  return "Sweeper ";
+        case Job::MOPPER:   return "Mopper  ";
+        case Job::SCRUBBER: return "Scrubber";
+        case Job::VACUUMER: return "Vacuumer";
+        default:            return "Unknown ";
+    }
+}
+static std::string sizeStr(Size s) {
+    return s == Size::SMALL ? "Small" : "Large";
+}
 
-int main() {
-    Timer timer;
-    Building building{"logfile.csv"};
-    Fleet fleet{"logfile.csv"};
-    Manager manager("logfile.csv");
-    Technician technician{"logfile.csv"};
+// ─────────────────────────────────────────────────────────────────────────────
+//  Dashboard  ─  full system overview
+// ─────────────────────────────────────────────────────────────────────────────
+static void showDashboard(Fleet& fleet, Building& building, Timer& timer,
+                          Room* base,
+                          const std::unordered_set<std::string>& priorityRooms) {
+    using namespace UI;
+    thickLine(72, BCYN);
+    std::cout << BCYN << BOLD
+              << "  FLEET DASHBOARD"
+              << RST << DIM << "                            Time: "
+              << RST << BYEL << BOLD << timer.getTime() << RST << "\n";
+    thickLine(72, BCYN);
 
-    Room baseObject {"Base", 0, 0, false, false, false, "logfile.csv"};
-    Room* base = &baseObject;
-    building.addRoom(base);
+    // ── Robots ──────────────────────────────────────────────────
+    section("ROBOTS", BMAG);
+    std::cout << DIM
+              << "  " << pcol("Name",    12)
+              << pcol("Type",    10)
+              << pcol("Size",    7)
+              << "Battery         "
+              << pcol("Location", 14)
+              << "Status\n" << RST;
+    hline(72, MAGENTA);
 
-    std::ifstream infile("../../app/input.csv"); //where to grab
-    if (!infile) { 
-        std::cerr << "Error: could not open file: input.csv" << std::endl;
-        exit(1);
+    for (Robot* r : fleet.getFleet()) {
+        bool atBase   = (r->getLocation() == base);
+        bool failed   = r->hasFailed();
+        bool busy     = r->getBusy();
+        float batt    = r->getBattery();
+
+        std::cout << "  "
+                  << BOLD << pcol(r->getName(), 12) << RST
+                  << pcol(jobStr(r->getJob()), 10)
+                  << pcol(sizeStr(r->getSize()), 7)
+                  << battBar(batt, 10)
+                  << " " << std::setw(5) << std::fixed << std::setprecision(1) << batt << "%  "
+                  << pcol(r->getLocation()->getName(), 14)
+                  << statusBadge(busy, failed, atBase)
+                  << "\n";
     }
 
-    const std::string WHITESPACE = " \n\r\t\f\v";
+    // ── Rooms ────────────────────────────────────────────────────
+    section("BUILDING", BBLU);
+    std::cout << DIM
+              << "  " << pcol("Room",    14)
+              << pcol("Size(m²)", 10)
+              << pcol("Swept",   14)
+              << pcol("Mopped",  14)
+              << pcol("Scrubbed",14)
+              << "Vacuumed\n" << RST;
+    hline(72, BLUE);
 
-    std::string str;
-    bool makeRooms = false;
+    for (Room* r : building.getBuilding()) {
+        if (r == base) continue;
+        bool hp = priorityRooms.count(r->getName()) > 0;
+        float sz = r->getSize();
+        std::cout << "  "
+                  << (hp ? BYEL : "") << BOLD << pcol(r->getName(), 14) << RST
+                  << std::setw(8) << std::fixed << std::setprecision(1) << sz << "  "
+                  << bar(r->getPercentSwept(),    10) << "  "
+                  << bar(r->getPercentMopped(),   10) << "  "
+                  << bar(r->getPercentScrubbed(), 10) << "  "
+                  << bar(r->getPercentVacuumed(), 10)
+                  << (hp ? (BYEL + " [!]" + RST) : "")
+                  << "\n";
+    }
 
-    while(getline(infile, str)){
-        if (str != ""){
-            std::vector<std::string> terms = split(str, WHITESPACE+",()");
-            if (terms[0] == "robots:"){
+    thickLine(72, BCYN);
+}
 
-            }else if (terms[0] == "rooms:"){
-                makeRooms = true;
-            }else if(!makeRooms){
-                Size size;
-                Job job;
-                if (terms[1] == "small"){
-                    size = Size::SMALL;
-                }else if (terms[1] == "large"){
-                    size = Size::LARGE;
-                }
-                if (terms[2] == "sweeper"){
-                    job = Job::SWEEPER;
-                }else if (terms[2] == "mopper"){
-                    job = Job::MOPPER;
-                }else if (terms[2] == "scrubber"){
-                    job = Job::SCRUBBER;
-                }
-                Robot* robot = new Robot(terms[0], 100, size, base, "logfile.csv", job);
-                fleet.addToFleet(robot);
-                fleet.updateVectors(robot);
-            }else{
-                Room* room = new Room(terms[0], std::stof(terms[1]), std::stof(terms[2]), terms[3] == "true", terms[4] == "true", terms[5] == "true", "logfile.csv");
-                building.addRoom(room);
+// ─────────────────────────────────────────────────────────────────────────────
+//  Stats
+// ─────────────────────────────────────────────────────────────────────────────
+static void showStats(const Stats& s, Fleet& fleet, Building& building, Timer& timer) {
+    using namespace UI;
+    section("SESSION ANALYTICS", BGRN);
+
+    auto& all    = fleet.getFleet();
+    int avail    = (int)fleet.getAvailableRobots().size();
+    int busy     = (int)fleet.getBusyRobots().size();
+    int failed   = 0;
+    for (Robot* r : all) if (r->hasFailed()) ++failed;
+
+    int totalRooms = (int)building.getBuilding().size() - 1; // exclude base
+    int clean  = (int)building.getCleanRooms().size();
+    int dirty  = (int)building.getDirtyRooms().size();
+
+    std::cout << "\n"
+              << "  " << BOLD << "Time Elapsed   " << RST << BCYN << timer.getTime() << " units\n" << RST
+              << "  " << BOLD << "Assignments    " << RST << s.assignments << " total"
+                 << "  (" << s.autoRuns << " auto)\n"
+              << "  " << BOLD << "Rooms Cleaned  " << RST << BGRN << s.completedCleans << RST << "\n"
+              << "  " << BOLD << "Robot Failures " << RST << (s.failures ? BRED : BGRN)
+                 << s.failures << RST << "\n"
+              << "  " << BOLD << "Tech Calls     " << RST << s.techCalls << "\n"
+              << "\n";
+
+    section("FLEET SUMMARY", BMAG);
+    std::cout << "  Total robots : " << BOLD << all.size()   << RST << "\n"
+              << "  Available    : " << BGRN << avail  << RST << "\n"
+              << "  Working      : " << BYEL << busy   << RST << "\n"
+              << "  Failed       : " << (failed ? BRED : BGRN) << failed << RST << "\n\n";
+
+    section("BUILDING SUMMARY", BBLU);
+    std::cout << "  Total rooms  : " << BOLD << totalRooms << RST << "\n"
+              << "  Clean        : " << BGRN << clean << RST << "\n"
+              << "  Dirty        : " << (dirty ? BRED : BGRN) << dirty << RST << "\n\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Smart auto-assign
+//  Scores every (robot, room) pair and assigns the best available matches.
+//  Scoring: battery_ratio * 0.5 + dirtiness * 0.5
+// ─────────────────────────────────────────────────────────────────────────────
+static int doAutoAssign(Fleet& fleet, Building& building, Manager& manager,
+                        Room* base, Stats& stats,
+                        const std::unordered_set<std::string>& priorityRooms) {
+    using namespace UI;
+
+    struct Match {
+        Robot* robot;
+        Room*  room;
+        float  score;
+    };
+
+    std::vector<Match> matches;
+    std::unordered_set<std::string> assignedRobots;
+    std::unordered_set<std::string> assignedRooms;
+
+    for (Robot* robot : fleet.getAvailableRobots()) {
+        if (robot->hasFailed()) continue;
+
+        for (Room* room : building.getDirtyRooms()) {
+            bool compatible = false;
+            float dirtiness = 0.0f;
+            float roomSize  = room->getSize();
+            int   capacity  = (robot->getSize() == Size::SMALL) ? 500 : 1200;
+
+            if (robot->getJob() == Job::SWEEPER && room->getSweepable()) {
+                compatible = true;
+                dirtiness  = (100.0f - room->getPercentSwept()) / 100.0f;
+                float need = ((100.0f - room->getPercentSwept()) * roomSize / (float)capacity) + 5.0f;
+                if (robot->getBattery() < need * 0.5f) compatible = false;
+            } else if (robot->getJob() == Job::MOPPER && room->getMoppable()) {
+                compatible = true;
+                dirtiness  = (100.0f - room->getPercentMopped()) / 100.0f;
+                float need = ((100.0f - room->getPercentMopped()) * roomSize / (float)capacity) + 5.0f;
+                if (robot->getBattery() < need * 0.5f) compatible = false;
+            } else if (robot->getJob() == Job::SCRUBBER && room->getScrubbable()) {
+                compatible = true;
+                dirtiness  = (100.0f - room->getPercentScrubbed()) / 100.0f;
+                float need = ((100.0f - room->getPercentScrubbed()) * roomSize / (float)capacity) + 5.0f;
+                if (robot->getBattery() < need * 0.5f) compatible = false;
+            } else if (robot->getJob() == Job::VACUUMER && room->getVacuumable()) {
+                compatible = true;
+                dirtiness  = (100.0f - room->getPercentVacuumed()) / 100.0f;
+                float need = ((100.0f - room->getPercentVacuumed()) * roomSize / (float)capacity) + 5.0f;
+                if (robot->getBattery() < need * 0.5f) compatible = false;
             }
+
+            if (!compatible) continue;
+
+            float battRatio = robot->getBattery() / 100.0f;
+            float priority  = priorityRooms.count(room->getName()) ? 1.5f : 1.0f;
+            float score     = (battRatio * 0.4f + dirtiness * 0.6f) * priority;
+            matches.push_back({robot, room, score});
         }
     }
 
-    int wait = 0;
+    // Sort best score first
+    std::sort(matches.begin(), matches.end(),
+              [](const Match& a, const Match& b){ return a.score > b.score; });
 
-    Robot* waitingRobot;
+    int count = 0;
+    for (auto& m : matches) {
+        if (assignedRobots.count(m.robot->getName())) continue;
+        if (assignedRooms.count(m.room->getName()))   continue;
+        // Assign
+        manager.assignRobot(m.robot, m.room);
+        fleet.updateVectors(m.robot);
+        assignedRobots.insert(m.robot->getName());
+        assignedRooms.insert(m.room->getName());
+        stats.assignments++;
+        stats.autoRuns++;
+        ++count;
+        success("Auto-assigned " + m.robot->getName() + " [" + jobStr(m.robot->getJob()) + "]"
+                + " --> " + m.room->getName()
+                + "  (score " + std::to_string((int)(m.score * 100)) + ")");
+    }
+    if (count == 0) warn("No compatible robot/room pairs found for auto-assign.");
+    return count;
+}
 
-    bool waitingOnRobot = false;
-    
-    while(true) {
-        bool ongoingInstructions = true;
+// ─────────────────────────────────────────────────────────────────────────────
+//  Help menu
+// ─────────────────────────────────────────────────────────────────────────────
+static void showHelp() {
+    using namespace UI;
+    section("COMMANDS", BCYN);
 
-        std::cout << "Current Time: " << timer.getTime() << std::endl;
+    auto row = [](const std::string& cmd, const std::string& desc) {
+        std::cout << "  " << BYEL << BOLD << pcol(cmd, 36) << RST
+                  << DIM << desc << RST << "\n";
+    };
 
+    row("assign <robot> <room>",              "Assign a robot to clean a room");
+    row("auto",                               "Smart-assign best robots to dirty rooms");
+    row("display dirty rooms",                "List all dirty rooms");
+    row("display clean rooms",                "List all clean rooms");
+    row("display all rooms",                  "List every room");
+    row("display busy robots",                "List robots currently working");
+    row("display available robots",           "List robots ready for assignment");
+    row("display all robots",                 "List the entire fleet");
+    row("view <robot|room>",                  "Inspect a robot or room in detail");
+    row("dashboard",                          "Full system overview (fleet + building)");
+    row("stats",                              "Session analytics & performance metrics");
+    row("call technician <robot>",            "Dispatch technician to repair a failed robot");
+    row("priority <room>",                    "Toggle high-priority flag on a room");
+    row("dirty <room>",                       "Mark a room as dirty (simulation)");
+    row("time <N>",                           "Advance simulation by N time units");
+    row("time until <robot>",                 "Wait until a robot finishes (or fails)");
+    row("exit",                               "Quit the program");
+    std::cout << "\n";
+}
 
-        while(ongoingInstructions && wait == 0 && !waitingOnRobot){
-            std::string firstArg;
-            std::string secondArg;
-            std::string thirdArg;
-            std::cin >> firstArg;
-            if (firstArg == "help") {
-                std::cout << std::endl;
-                std::cout << "List of Commands: " << std::endl;
+// ─────────────────────────────────────────────────────────────────────────────
+//  main
+// ─────────────────────────────────────────────────────────────────────────────
+int main() {
+    using namespace UI;
 
-                std::cout << std::endl;
-                std::cout << "assign - [assign] [robotName] [roomName]" << std::endl;
-                std::cout << "Assigns [robotName] to clean [roomName]" << std::endl;
+    Timer     timer;
+    Building  building{"logfile.csv"};
+    Fleet     fleet{"logfile.csv"};
+    Manager   manager{"logfile.csv"};
+    Technician technician{"logfile.csv"};
+    Stats     stats;
+    std::unordered_set<std::string> priorityRooms;
 
-                std::cout << std::endl;
-                std::cout << "display - [display] [dirty rooms] / [clean rooms] / [all rooms] / [busy robots] / [available robots] / [all robots]" << std::endl;
-                std::cout << "Displays target specified" << std::endl;
+    // Base room (charging station)
+    Room baseObj{"Base", 0, 0, false, false, false, false, "logfile.csv"};
+    Room* base = &baseObj;
+    building.addRoom(base);
 
-                std::cout << std::endl;
-                std::cout << "view - [view] [robotName] / [roomName]" << std::endl;
-                std::cout << "Shows status of [robotName] or status of [roomName]" << std::endl;
+    // ── Load input.csv ──────────────────────────────────────────
+    // Try several relative paths so it works from different build dirs
+    std::ifstream infile;
+    for (const auto& path : {"input.csv", "../app/input.csv", "../../app/input.csv",
+                              "app/input.csv"}) {
+        infile.open(path);
+        if (infile.is_open()) break;
+    }
+    if (!infile.is_open()) {
+        error("Could not open input.csv  (tried input.csv, app/input.csv, ../../app/input.csv)");
+        return 1;
+    }
 
-                std::cout << std::endl;
-                std::cout << "call - [call] [technician] [robotName]" << std::endl;
-                std::cout << "Calls [technician] to fix [robotName]" << std::endl;
+    const std::string WS = " \n\r\t\f\v";
+    std::string line;
+    bool makeRooms = false;
 
-                std::cout << std::endl;
-                std::cout << "time - [time] [time units you'd like to advance] / [until] [robotName]" << std::endl;
-                std::cout << "Advances time forward either a specified number of time units, or until robotName completes its assigned task (or fails to do the task)" << std::endl;
+    while (std::getline(infile, line)) {
+        if (line.empty()) continue;
+        auto terms = split(line, WS + ",()");
+        if (terms.empty()) continue;
 
-                std::cout << std::endl;
-                std::cout << "dirty - [dirty] [roomName]" << std::endl;
-                std::cout << "Dirties the room specified" << std::endl;
+        if (terms[0] == "robots:") {
+            makeRooms = false;
+        } else if (terms[0] == "rooms:") {
+            makeRooms = true;
+        } else if (!makeRooms && terms.size() >= 3) {
+            // Parse robot: name size type
+            Size sz  = (terms[1] == "large") ? Size::LARGE : Size::SMALL;
+            Job  job = Job::SWEEPER;
+            if      (terms[2] == "mopper")   job = Job::MOPPER;
+            else if (terms[2] == "scrubber")  job = Job::SCRUBBER;
+            else if (terms[2] == "vacuumer")  job = Job::VACUUMER;
 
-                std::cout << std::endl;
-                std::cout << "exit - [exit]" << std::endl;
-                std::cout << "Terminate the program." << std::endl;
+            Robot* r = new Robot(terms[0], 100, sz, base, "logfile.csv", job);
+            fleet.addToFleet(r);
+            fleet.updateVectors(r);
+        } else if (makeRooms && terms.size() >= 6) {
+            // Parse room: name length width sweepable moppable scrubbable [vacuumable]
+            bool vac = (terms.size() >= 7) && (terms[6] == "true");
+            Room* r = new Room(
+                terms[0],
+                std::stof(terms[1]), std::stof(terms[2]),
+                terms[3] == "true", terms[4] == "true",
+                terms[5] == "true", vac,
+                "logfile.csv"
+            );
+            building.addRoom(r);
+        }
+    }
 
-                std::cout << std::endl;
+    // ── Welcome ─────────────────────────────────────────────────
+    banner();
+    info("Loaded " + std::to_string(fleet.getFleet().size()) + " robots and "
+         + std::to_string((int)building.getBuilding().size() - 1) + " rooms.");
 
-            } else if (firstArg == "time") {
-                std::cin >> secondArg;
-                bool isNotNum = false;
-                for(int i = 0; i < secondArg.size(); i++){
-                    if(!isdigit(secondArg[i])){
-                        isNotNum = true;
-                    }
+    // ── Simulation state ────────────────────────────────────────
+    int    wait          = 0;
+    bool   waitingOnRobot = false;
+    Robot* waitingRobot   = nullptr;   // null = not waiting
+
+    // ── Main loop ───────────────────────────────────────────────
+    while (true) {
+        // Resolve time-advance modes
+        bool interactive = (wait == 0 && !waitingOnRobot);
+
+        if (interactive) {
+            prompt(timer.getTime());
+            std::flush(std::cout);
+        }
+
+        // ── Command input ────────────────────────────────────────
+        while (interactive) {
+            std::string first, second, third;
+            std::cin >> first;
+
+            if (first == "help") {
+                showHelp();
+
+            } else if (first == "dashboard") {
+                showDashboard(fleet, building, timer, base, priorityRooms);
+
+            } else if (first == "stats") {
+                showStats(stats, fleet, building, timer);
+
+            } else if (first == "auto") {
+                section("SMART AUTO-ASSIGN", BGRN);
+                int n = doAutoAssign(fleet, building, manager, base, stats, priorityRooms);
+                if (n > 0) {
+                    info(std::to_string(n) + " assignment(s) made.");
                 }
-                if (!isNotNum){
-                    wait = std::stoi(secondArg);
-                    ongoingInstructions = false;
-                }else if(secondArg == "until"){
-                    std::cin >> thirdArg;
-                    for (Robot* robot : fleet.getFleet()) {
-                        if (thirdArg == robot->getName()) {
-                            waitingRobot = robot;
-                            waitingOnRobot = true;
-                            ongoingInstructions = false;
+
+            } else if (first == "priority") {
+                std::cin >> second;
+                bool found = false;
+                for (Room* r : building.getBuilding()) {
+                    if (r->getName() == second && r != base) {
+                        found = true;
+                        if (priorityRooms.count(second)) {
+                            priorityRooms.erase(second);
+                            warn(second + " priority flag removed.");
+                        } else {
+                            priorityRooms.insert(second);
+                            success(second + " marked as HIGH PRIORITY.");
                         }
                     }
-                }else{
-                    std::cout << "Command not recognized. Type 'help' for list of valid commands." << std::endl;
                 }
-            } else if (firstArg == "assign") { // [assign] [robotName] [roomName]
-                std::cin >> secondArg;
-                std::cin >> thirdArg;
-                bool foundRobot = false;
-                bool foundRoom = false;
-                for (Robot* robot : fleet.getFleet()) {
-                    if (secondArg == robot->getName()) {
+                if (!found) error("Room '" + second + "' not found.");
+
+            } else if (first == "time") {
+                std::cin >> second;
+                bool isNum = !second.empty() && std::all_of(second.begin(), second.end(), ::isdigit);
+                if (isNum) {
+                    wait = std::stoi(second);
+                    interactive = false;
+                } else if (second == "until") {
+                    std::cin >> third;
+                    bool found = false;
+                    for (Robot* r : fleet.getFleet()) {
+                        if (r->getName() == third) {
+                            waitingRobot  = r;
+                            waitingOnRobot = true;
+                            interactive   = false;
+                            found         = true;
+                            info("Waiting for " + third + " to finish...");
+                        }
+                    }
+                    if (!found) error("Robot '" + third + "' not found.");
+                } else {
+                    error("Usage: time <N>  or  time until <robot>");
+                }
+
+            } else if (first == "assign") {
+                std::cin >> second >> third;
+                bool foundRobot = false, foundRoom = false;
+                for (Robot* r : fleet.getFleet()) {
+                    if (r->getName() == second) {
                         foundRobot = true;
                         for (Room* room : building.getBuilding()) {
-                            if (thirdArg == room->getName()) {
+                            if (room->getName() == third) {
                                 foundRoom = true;
-                                manager.assignRobot(robot, room);
-                                fleet.updateVectors(robot);
+                                manager.assignRobot(r, room);
+                                fleet.updateVectors(r);
+                                stats.assignments++;
                             }
                         }
                     }
                 }
-                if (!foundRobot || !foundRoom) {
-                    std::cout << "Robot or Room not found. Please try again." << std::endl;
+                if (!foundRobot || !foundRoom)
+                    error("Robot '" + second + "' or room '" + third + "' not found.");
+
+            } else if (first == "display") {
+                std::cin >> second >> third;
+                if      (second == "dirty"     && third == "rooms")  manager.displayDirtyRooms(building);
+                else if (second == "clean"     && third == "rooms")  manager.displayCleanRooms(building);
+                else if (second == "all"       && third == "rooms")  manager.displayAllRooms(building);
+                else if (second == "busy"      && third == "robots") manager.displayBusyRobots(fleet);
+                else if (second == "available" && third == "robots") manager.displayAvailableRobots(fleet);
+                else if (second == "all"       && third == "robots") manager.displayFleet(fleet);
+                else error("Unknown display target. Type 'help' for options.");
+
+            } else if (first == "view") {
+                std::cin >> second;
+                bool found = false;
+                for (Robot* r : fleet.getFleet()) {
+                    if (r->getName() == second) { found = true; manager.viewRobotStatus(r); }
                 }
-            } else if (firstArg == "display") { // fix later
-                std::cin >> secondArg;
-                std::cin >> thirdArg;
-                if (secondArg == "dirty" && thirdArg == "rooms") {
-                    manager.displayDirtyRooms(building);
-                } else if (secondArg == "clean" && thirdArg == "rooms") {
-                    manager.displayCleanRooms(building);
-                } else if (secondArg == "all" && thirdArg == "rooms") {
-                    manager.displayAllRooms(building);
-                } else if (secondArg == "busy" && thirdArg == "robots") {
-                    manager.displayBusyRobots(fleet);
-                } else if (secondArg == "available" && thirdArg == "robots") {
-                    manager.displayAvailableRobots(fleet);
-                } else if (secondArg == "all" && thirdArg == "robots") {
-                    manager.displayFleet(fleet);
+                for (Room* r : building.getBuilding()) {
+                    if (r->getName() == second) { found = true; manager.viewLocation(r); }
+                }
+                if (!found) error("'" + second + "' not found.");
+
+            } else if (first == "call") {
+                std::cin >> second >> third;
+                if (second != "technician") {
+                    error("Usage: call technician <robot>");
                 } else {
-                    std::cout << "Command not recognized. Type 'help' for list of valid commands." << std::endl;
-                }
-            } else if (firstArg == "view") {
-                std::cin >> secondArg;
-                bool foundObject = false;
-                for (Robot* robot : fleet.getFleet()) {
-                    if (secondArg == robot->getName()) {
-                        foundObject = true;
-                        manager.viewRobotStatus(robot);
-                    }
-                }
-                for (Room* room : building.getBuilding()) {
-                    if (secondArg == room->getName()) {
-                        foundObject = true;
-                        manager.viewLocation(room);
-                    }
-                }
-                if (!foundObject) {
-                    std::cout << "Robot or Room not found. Please try again." << std::endl;
-                }
-            } else if (firstArg == "call") {
-                std::cin >> secondArg;
-                std::cin >> thirdArg;
-                bool foundRobot = false;
-                if (secondArg == "technician") {
-                    for (Robot* robot : fleet.getFleet()) {
-                        if (thirdArg == robot->getName()) {
-                            foundRobot = true;
-                            manager.callTech(robot, technician);
-                            robot->setLocation(base);
+                    bool found = false;
+                    for (Robot* r : fleet.getFleet()) {
+                        if (r->getName() == third) {
+                            found = true;
+                            manager.callTech(r, technician);
+                            r->setLocation(base);
+                            stats.techCalls++;
+                            success("Technician dispatched for " + third + ".");
                         }
                     }
-                    if (!foundRobot) {
-                        std::cout << "Robot not found. Please try again." << std::endl;
-                    }
-                } else {
-                    std::cout << "Command not recognized. Type 'help' for list of valid commands." << std::endl;
+                    if (!found) error("Robot '" + third + "' not found.");
                 }
-            } else if (firstArg == "dirty") {
-                std::cin >> secondArg;
-                bool foundRoom = false;
-                for (Room* room : building.getBuilding()) {
-                    if (secondArg == room->getName()) {
-                        foundRoom = true;
-                        room->randomlyDirty();
+
+            } else if (first == "dirty") {
+                std::cin >> second;
+                bool found = false;
+                for (Room* r : building.getBuilding()) {
+                    if (r->getName() == second && r != base) {
+                        found = true;
+                        r->randomlyDirty();
+                        warn(second + " has been dirtied.");
                     }
                 }
-                if (!foundRoom) {
-                    std::cout << "Room not found. Please try again." << std::endl;
-                }
-            } else if (firstArg == "exit") {
+                if (!found) error("Room '" + second + "' not found.");
+
+            } else if (first == "exit") {
+                section("FINAL STATS", BCYN);
+                showStats(stats, fleet, building, timer);
+                std::cout << BCYN << BOLD << "  Goodbye!\n" << RST;
                 return 0;
+
             } else {
-                std::cout << "Command not recognized. Type 'help' for list of valid commands." << std::endl;
+                error("Unknown command '" + first + "'. Type 'help' for the command list.");
             }
+
+            // Check if we should keep asking for commands this tick
+            if (wait > 0 || waitingOnRobot) break;
+
+            prompt(timer.getTime());
+            std::flush(std::cout);
         }
+
+        // ── Tick: update all robots ──────────────────────────────
+        int prevFailed = 0;
+        for (Robot* r : fleet.getFleet()) if (r->hasFailed()) ++prevFailed;
+
         for (Robot* r : fleet.getFleet()) {
             if (r->getLocation() == base) {
-                //do something
                 r->charge();
             } else {
                 r->setFailed(r->hasFailed());
                 r->clean();
                 if (r->isRoomClean()) {
+                    std::cout << BGRN << "  [+] " << RST << GREEN
+                              << r->getName() << " finished cleaning "
+                              << r->getLocation()->getName() << "!\n" << RST;
                     r->move(base);
                     r->setBusy(false);
                     fleet.updateVectors(r);
+                    stats.completedCleans++;
                 }
             }
         }
+
+        // Count new failures this tick
+        for (Robot* r : fleet.getFleet()) {
+            if (r->hasFailed()) ++stats.failures;
+        }
+        stats.failures = std::max(0, stats.failures - prevFailed);
+
         technician.technicianFixesRobot();
         timer.addTime();
-        if (wait > 0){
-            wait -= 1;
-        }
-        if(waitingRobot->hasFailed() || waitingRobot->getLocation() == base){
-            waitingOnRobot = false;
+
+        if (wait > 0) --wait;
+
+        // Resolve waitingOnRobot
+        if (waitingOnRobot && waitingRobot != nullptr) {
+            if (waitingRobot->hasFailed()) {
+                warn(waitingRobot->getName() + " has FAILED while working.");
+                waitingOnRobot = false;
+                waitingRobot   = nullptr;
+            } else if (waitingRobot->getLocation() == base) {
+                waitingOnRobot = false;
+                waitingRobot   = nullptr;
+            }
         }
     }
-//     if (argc != 4) {
-//         std::cerr << "The command line should be in formate: " << argv[0] << " <robot> <action> <room>" << std::endl;
-//         return 1;
-//     }
-
-//     std::string robotName = argv[1];
-//     std::string action = argv[2];
-//     std::string roomName = argv[3];
-
-//     // make building and room and robot objects
-//     Building building;
-//     Room office("Office", 16.0, 12.5, true, true, true);
-//     Room atrium("Atrium", 160, 120.5, false, true, true);
-//     building.addRoom(&office);
-//     building.addRoom(&atrium);
-
-//     Sweeper sweeperRobot("Sweeper", 100, Size::SMALL, &office);
-//     Mopper mopperRobot("Mopper", 100, Size::LARGE, &atrium);
-
-// Robot* findrobot(const std::string& name) {
-//     if (name == "Sweeper") return &sweeperRobot;
-//     if (name == "Mopper") return &mopperRobot;
-//     return nullptr; // Return nullptr if robot not found
-// }
-
-// Room* findroom(const std::string& name) {
-//     if (name == "Office") return &office;
-//     if (name == "Atrium") return &atrium;
-//     // Add more rooms here
-//     return nullptr; 
-// }
-
-//     Robot* robot = findrobot(robotName); //map robotname to robot
-//     Room* room = findroom(roomName); //same here
-
-//     if (!robot || !room) {
-//         std::cerr << "room name or robot name doesnt exist" << std::endl;
-//         return 1;
-//     }
-
-
-//     // Perform the action  -- The dynamic type cast converts a pointer (or reference) to one class T1 into a pointer (reference) to another class T2
-//     if (action == "sweep" && dynamic_cast<Sweeper*>(robot)) {
-//         dynamic_cast<Sweeper*>(robot)->sweep();
-
-//     } else if (action == "mop" && dynamic_cast<Mopper*>(robot)) {
-//         dynamic_cast<Mopper*>(robot)->mop();
-
-//     } else if (action == "scrub" && dynamic_cast<Scrubber*>(robot)) {
-//         dynamic_cast<Scrubber*>(robot)->scrub();
-        
-//     } else {
-//         std::cerr << "invalid action or robot type" << std::endl;
-//         return 1;
-//     }
-
-//     std::cout << "Done" << std::endl;
-
-//     return 0;
 }
