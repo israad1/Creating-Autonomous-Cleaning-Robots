@@ -244,4 +244,4 @@ MIT — see [LICENSE](LICENSE) for details.
 
 ---
 
-*CMSC 322 · Fall 2023 Software Engineering Practicum · University of Maryland*
+*CMSC 322 · Fall 2023 Software Engineering Practicum · University of Richmond*
